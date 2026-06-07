@@ -2,58 +2,10 @@
 import { computed, nextTick, onMounted, ref } from 'vue'
 import type { TableColumnsType } from 'ant-design-vue'
 import type { Key } from 'ant-design-vue/es/_util/type'
+import { fetchUsers, type User } from '../api/mockUsers'
 import { useVirtualTable } from '../utils/useVirtualTable'
 
-interface User {
-  key: string
-  name: string
-  age: number
-  gender: string
-  phone: string
-  email: string
-  department: string
-  position: string
-  salary: number
-  joinDate: string
-  status: string
-}
-
-const surnames = ['张', '李', '王', '赵', '刘', '陈', '杨', '黄', '周', '吴']
-const names = ['伟', '芳', '娜', '敏', '静', '丽', '强', '磊', '军', '洋']
-const genders = ['男', '女']
-const departments = ['技术部', '产品部', '市场部', '人事部', '财务部', '运营部', '设计部', '客服部']
-const positions = ['工程师', '经理', '主管', '专员', '总监', '助理', '分析师', '顾问']
-const statuses = ['在职', '离职', '试用期', '休假中']
-
-function randomPick<T>(arr: T[]): T {
-  return arr[Math.floor(Math.random() * arr.length)]!
-}
-
-function randomInt(min: number, max: number): number {
-  return Math.floor(Math.random() * (max - min + 1)) + min
-}
-
-function generateData(count: number): User[] {
-  const seed = Date.now()
-  return Array.from({ length: count }, (_, i) => {
-    const year = randomInt(2010, 2024)
-    const month = randomInt(1, 12)
-    const day = randomInt(1, 28)
-    return {
-      key: `${seed}-${i}`,
-      name: randomPick(surnames) + randomPick(names) + randomInt(0, 999),
-      age: randomInt(18, 65),
-      gender: randomPick(genders),
-      phone: `1${randomInt(3, 9)}${String(randomInt(100000000, 999999999))}`,
-      email: `user${randomInt(1000, 99999)}@${randomPick(['qq', '163', 'gmail', 'outlook'])}.com`,
-      department: randomPick(departments),
-      position: randomPick(positions),
-      salary: randomInt(5000, 50000),
-      joinDate: `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`,
-      status: randomPick(statuses),
-    }
-  })
-}
+const PAGE_SIZE = 1000
 
 const SCROLL_X = 1070
 const TABLE_HEIGHT = 600
@@ -61,7 +13,7 @@ const ROW_HEIGHT = 39
 
 const columns: TableColumnsType<User> = [
   { title: '姓名', dataIndex: 'name', key: 'name', width: 100, fixed: 'left', ellipsis: true },
-  { title: '年龄', dataIndex: 'age', key: 'age', width: 80, sorter: (a, b) => a.age - b.age },
+  { title: '年龄', dataIndex: 'age', key: 'age', width: 80, fixed: 'left', sorter: (a, b) => a.age - b.age },
   { title: '性别', dataIndex: 'gender', key: 'gender', width: 70 },
   { title: '手机号', dataIndex: 'phone', key: 'phone', width: 130, ellipsis: true },
   { title: '邮箱', dataIndex: 'email', key: 'email', width: 180, ellipsis: true },
@@ -72,11 +24,13 @@ const columns: TableColumnsType<User> = [
   { title: '状态', dataIndex: 'status', key: 'status', width: 90 },
 ]
 
-const TOTAL = 1000
 const dataSource = ref<User[]>([])
 const renderTime = ref('')
+const currentPage = ref(0)
+const hasMore = ref(true)
 
 const loading = ref(false)
+const loadingMore = ref(false)
 const selectedRowKeys = ref<Key[]>([])
 
 const tableContainerRef = ref<HTMLElement | null>(null)
@@ -86,6 +40,9 @@ const { tableData, range, refresh } = useVirtualTable(dataSource, {
   rowHeight: ROW_HEIGHT,
   overscan: 4,
   containerRef: tableContainerRef,
+  hasMore,
+  loadingMore,
+  onReachEnd: loadMore,
 })
 
 const rowSelection = computed(() => ({
@@ -96,36 +53,65 @@ const rowSelection = computed(() => ({
   },
 }))
 
-async function renderTable(data: User[]) {
+async function loadFirstPage() {
   const renderStart = performance.now()
-  dataSource.value = data
+  loading.value = true
+  currentPage.value = 0
+  hasMore.value = true
+
+  const result = await fetchUsers(1, PAGE_SIZE)
+  currentPage.value = result.page
+  hasMore.value = result.hasMore
+  dataSource.value = result.list
+
   await nextTick()
   refresh()
   await nextTick()
   renderTime.value = `${(performance.now() - renderStart).toFixed(1)} ms`
-}
-
-async function handleRefresh() {
-  loading.value = true
-  selectedRowKeys.value = []
-  const newData = generateData(TOTAL)
-  await renderTable(newData)
   loading.value = false
 }
 
-onMounted(async () => {
-  await renderTable(generateData(TOTAL))
+async function loadMore() {
+  if (loading.value || loadingMore.value || !hasMore.value) {
+    return
+  }
+
+  loadingMore.value = true
+  const nextPage = currentPage.value + 1
+
+  try {
+    const result = await fetchUsers(nextPage, PAGE_SIZE)
+    currentPage.value = result.page
+    hasMore.value = result.hasMore
+    dataSource.value = [...dataSource.value, ...result.list]
+    await nextTick()
+  } finally {
+    loadingMore.value = false
+  }
+}
+
+async function handleRefresh() {
+  selectedRowKeys.value = []
+  await loadFirstPage()
+}
+
+onMounted(() => {
+  void loadFirstPage()
 })
 </script>
 
 <template>
   <div class="table-demo">
-    <h2>用户列表（{{ TOTAL }} 条 · 虚拟滚动）</h2>
+    <h2>用户列表（虚拟滚动 · 滚动加载更多）</h2>
     <a-space style="margin-bottom: 16px" wrap>
-      <a-button type="primary" @click="handleRefresh">重新渲染</a-button>
+      <a-button type="primary" @click="handleRefresh">重新加载</a-button>
+      <span>已加载 {{ dataSource.length }} 条</span>
+      <span>当前第 {{ currentPage }} 页</span>
       <span>已选 {{ selectedRowKeys.length }} 条</span>
       <span>渲染耗时：{{ renderTime || '计算中...' }}</span>
-      <span>当前渲染：{{ range.end ? range.start + 1 : 0 }}-{{ range.end }} / {{ TOTAL }}</span>
+      <span>当前渲染：{{ range.end ? range.start + 1 : 0 }}-{{ range.end }} / {{ dataSource.length }}</span>
+      <a-tag v-if="loadingMore" color="processing">加载下一批...</a-tag>
+      <a-tag v-else-if="!hasMore" color="default">已全部加载</a-tag>
     </a-space>
 
     <div ref="tableContainerRef" class="virtual-table-wrapper">

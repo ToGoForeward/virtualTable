@@ -28,6 +28,10 @@ export function useVirtualTable<T>(
     overscan?: number
     containerRef?: Ref<HTMLElement | null> | ShallowRef<HTMLElement | null>
     tableSelector?: string
+    reachEndThreshold?: number
+    hasMore?: Ref<boolean>
+    loadingMore?: Ref<boolean>
+    onReachEnd?: () => void | Promise<void>
   },
 ) {
   const {
@@ -36,6 +40,10 @@ export function useVirtualTable<T>(
     overscan = 3,
     containerRef,
     tableSelector = '.virtual-table',
+    reachEndThreshold = 120,
+    hasMore,
+    loadingMore,
+    onReachEnd,
   } = options
 
   const scrollTop = ref(0)
@@ -62,14 +70,42 @@ export function useVirtualTable<T>(
   let topSpacer: HTMLTableRowElement | null = null
   let bottomSpacer: HTMLTableRowElement | null = null
   let rafId = 0
+  let reachEndLocked = false
 
   const getRoot = () => containerRef?.value ?? document.querySelector<HTMLElement>(tableSelector)
+
+  const tryLoadMore = () => {
+    if (!onReachEnd || !scrollEl || reachEndLocked) {
+      return
+    }
+    if (loadingMore?.value) {
+      return
+    }
+    if (hasMore && !hasMore.value) {
+      return
+    }
+
+    const distanceToBottom =
+      scrollEl.scrollHeight - scrollEl.scrollTop - scrollEl.clientHeight
+
+    if (distanceToBottom > reachEndThreshold) {
+      return
+    }
+
+    reachEndLocked = true
+    Promise.resolve(onReachEnd())
+      .catch(() => undefined)
+      .finally(() => {
+        reachEndLocked = false
+      })
+  }
 
   const onScroll = () => {
     if (!scrollEl) {
       return
     }
     scrollTop.value = scrollEl.scrollTop
+    tryLoadMore()
   }
 
   const unbind = () => {
@@ -168,6 +204,7 @@ export function useVirtualTable<T>(
     cancelAnimationFrame(rafId)
     rafId = requestAnimationFrame(() => {
       updateLayout()
+      tryLoadMore()
     })
   }
 
@@ -175,6 +212,7 @@ export function useVirtualTable<T>(
     const currentScrollEl = scrollEl
     unbind()
     scrollTop.value = 0
+    reachEndLocked = false
     if (currentScrollEl) {
       currentScrollEl.scrollTop = 0
     }
@@ -200,20 +238,6 @@ export function useVirtualTable<T>(
       scheduleLayout()
     },
     { flush: 'post' },
-  )
-
-  watch(
-    () => source.value.length,
-    (len, prevLen) => {
-      if (len !== prevLen) {
-        scrollTop.value = 0
-        if (scrollEl) {
-          scrollEl.scrollTop = 0
-        }
-        unbind()
-        scheduleLayout()
-      }
-    },
   )
 
   return {
