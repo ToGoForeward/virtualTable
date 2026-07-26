@@ -13,6 +13,11 @@ const router = createRouter({
       name: 'benefit-details',
       component: () => import('../views/BenefitDetails.vue'),
     },
+    {
+      path: '/basic-table',
+      name: 'basic-table',
+      component: () => import('../views/BasicTableDemo.vue'),
+    },
   ],
 })
 
