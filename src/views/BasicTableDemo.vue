@@ -1,9 +1,13 @@
 <script setup lang="ts">
 import type { TableColumnsType } from 'ant-design-vue'
-import { classTableRawData, type ClassTableRow } from '../api/mockClassTable'
-import ClassTableBodyCell from '../components/ClassTableBodyCell.vue'
+import { classTableRawData } from '../api/mockClassTable'
+import GroupExpandTable, { type GroupExpandRow } from '../components/GroupExpandTable.vue'
+import {
+  defaultDepartmentExpandedRowColor,
+  departmentExpandedRowColors,
+} from '../config/departmentRowColors'
 
-const columns: TableColumnsType<ClassTableRow> = [
+const columns: TableColumnsType<GroupExpandRow> = [
   {
     title: '班级',
     dataIndex: 'className',
@@ -24,7 +28,7 @@ const columns: TableColumnsType<ClassTableRow> = [
   },
 ]
 
-const dataSource = classTableRawData
+const dataSource = classTableRawData as unknown as GroupExpandRow[]
 </script>
 
 <template>
@@ -34,7 +38,17 @@ const dataSource = classTableRawData
       有小计的行在班级列显示部门名称和箭头，点击箭头展开或收起明细。
     </p>
 
-    <ClassTableBodyCell :columns="columns" :data-source="dataSource" />
+    <GroupExpandTable
+      :columns="columns"
+      :data-source="dataSource"
+      group-field="department"
+      row-type-field="rowType"
+      expand-column-key="className"
+      subtotal-type="subtotal"
+      data-type="data"
+      :expanded-row-colors="departmentExpandedRowColors"
+      :default-expanded-row-color="defaultDepartmentExpandedRowColor"
+    />
   </div>
 </template>
 
